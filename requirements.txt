@@ -4,5 +4,24 @@
 # Dependencies are added incrementally as each phase is implemented.
 # Install with:  pip install -r requirements.txt
 
-# --- Phase 1: Document Ingestion ---
-PyMuPDF                # PDF text extraction (import as fitz)
+# --- Document Ingestion ---
+PyMuPDF                # PDF text extraction (import as pymupdf / fitz)
+
+# --- Embeddings / Reranking ---
+sentence-transformers
+numpy
+
+# --- Retrieval ---
+rank-bm25
+qdrant-client
+
+# --- Generation ---
+google-genai
+groq
+python-dotenv
+
+# --- API ---
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic
