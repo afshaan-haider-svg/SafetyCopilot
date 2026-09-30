@@ -1,12 +1,17 @@
 """
 SafetyCopilot — Qdrant Vector Store
 
-Provides a lightweight wrapper around Qdrant for storing,
-retrieving, deleting, and rebuilding SafetyCopilot embeddings.
+Provides a wrapper around Qdrant for storing, retrieving,
+deleting, and rebuilding SafetyCopilot embeddings.
+
+Supports:
+- Local persistent Qdrant for development
+- Qdrant Cloud for deployment
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -23,17 +28,16 @@ from qdrant_client.models import (
 
 class QdrantVectorStore:
     """
-    Persistent local Qdrant vector store used by SafetyCopilot.
+    Qdrant vector store used by SafetyCopilot.
 
-    Supports:
-    - collection creation
-    - safe collection recreation
-    - vector upsert
-    - semantic search
-    - document-specific deletion
-    - collection counting
-    - client refresh
-    - safe cleanup
+    Automatically selects the Qdrant backend:
+
+    Local development:
+        data/qdrant
+
+    Cloud deployment:
+        QDRANT_URL
+        QDRANT_API_KEY
     """
 
     def __init__(
@@ -45,12 +49,31 @@ class QdrantVectorStore:
 
         self.collection_name = collection_name
         self.vector_size = vector_size
-
         self.storage_path = Path(storage_path)
-        self.storage_path.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
+
+        # -----------------------------------------------------
+        # Cloud configuration
+        # -----------------------------------------------------
+
+        self.qdrant_url = os.getenv(
+            "QDRANT_URL",
+            "",
+        ).strip()
+
+        self.qdrant_api_key = os.getenv(
+            "QDRANT_API_KEY",
+            "",
+        ).strip()
+
+        # QDRANT_URL present -> Cloud
+        # QDRANT_URL absent  -> Local
+        self.use_cloud = bool(self.qdrant_url)
+
+        if not self.use_cloud:
+            self.storage_path.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
 
         self.client = self._create_client()
 
@@ -60,8 +83,23 @@ class QdrantVectorStore:
 
     def _create_client(self) -> QdrantClient:
         """
-        Create a fresh local Qdrant client.
+        Create either a Qdrant Cloud client or a local
+        persistent Qdrant client.
         """
+
+        if self.use_cloud:
+
+            if not self.qdrant_api_key:
+                raise RuntimeError(
+                    "QDRANT_URL is configured but "
+                    "QDRANT_API_KEY is missing."
+                )
+
+            return QdrantClient(
+                url=self.qdrant_url,
+                api_key=self.qdrant_api_key,
+                timeout=60,
+            )
 
         return QdrantClient(
             path=str(self.storage_path)
@@ -69,12 +107,17 @@ class QdrantVectorStore:
 
     def refresh_client(self) -> None:
         """
-        Close the current local Qdrant client and open
-        a fresh client against the same storage directory.
+        Refresh the Qdrant client.
 
-        This is important after destructive collection
-        operations so stale local state is not reused.
+        Local embedded Qdrant benefits from reopening the
+        storage after destructive collection operations.
+
+        Qdrant Cloud does not require this refresh, so the
+        existing remote client is retained.
         """
+
+        if self.use_cloud:
+            return
 
         try:
             self.client.close()
@@ -103,7 +146,8 @@ class QdrantVectorStore:
         """
         Create the configured collection.
 
-        If recreate=True, perform a strict clean recreation.
+        If recreate=True, delete any existing collection
+        and create a fresh empty collection.
         """
 
         if recreate:
@@ -124,9 +168,6 @@ class QdrantVectorStore:
     def delete_collection(self) -> None:
         """
         Delete the configured collection if it exists.
-
-        The client is refreshed afterwards so subsequent
-        operations use the latest local-storage state.
         """
 
         if self.collection_exists():
@@ -134,46 +175,75 @@ class QdrantVectorStore:
                 collection_name=self.collection_name
             )
 
-        self.refresh_client()
+        # Only local embedded Qdrant requires client refresh.
+        if not self.use_cloud:
+            self.refresh_client()
 
     def recreate_collection(self) -> None:
         """
         Completely recreate the configured collection.
 
-        Steps:
-        1. Delete old collection
-        2. Refresh local Qdrant client
-        3. Verify old collection is gone
-        4. Create fresh collection
-        5. Refresh client again
-        6. Verify fresh collection is empty
+        Cloud mode:
+        - Delete existing remote collection if present
+        - Create a new remote collection
+        - Keep the same remote client
+
+        Local mode:
+        - Delete existing collection
+        - Refresh embedded client
+        - Create a new collection
+        - Refresh embedded client again
+        - Verify the collection is empty
         """
 
-        # ---------------------------------------------
-        # Delete old collection
-        # ---------------------------------------------
+        # =====================================================
+        # QDRANT CLOUD
+        # =====================================================
+
+        if self.use_cloud:
+
+            if self.collection_exists():
+                self.client.delete_collection(
+                    collection_name=self.collection_name
+                )
+
+            self.client.create_collection(
+                collection_name=self.collection_name,
+                vectors_config=VectorParams(
+                    size=self.vector_size,
+                    distance=Distance.COSINE,
+                ),
+            )
+
+            if not self.collection_exists():
+                raise RuntimeError(
+                    "Qdrant Cloud collection could not "
+                    "be recreated."
+                )
+
+            # Important:
+            # Do NOT refresh the remote client here.
+            # Do NOT perform the local stale-state check.
+            return
+
+        # =====================================================
+        # LOCAL QDRANT
+        # =====================================================
 
         if self.collection_exists():
             self.client.delete_collection(
                 collection_name=self.collection_name
             )
 
-        # Drop any stale local client state.
+        # Embedded local storage may keep stale state,
+        # therefore reopen the client.
         self.refresh_client()
-
-        # ---------------------------------------------
-        # Verify deletion
-        # ---------------------------------------------
 
         if self.collection_exists():
             raise RuntimeError(
                 "Qdrant collection still exists "
                 "after deletion."
             )
-
-        # ---------------------------------------------
-        # Create fresh collection
-        # ---------------------------------------------
 
         self.client.create_collection(
             collection_name=self.collection_name,
@@ -183,12 +253,7 @@ class QdrantVectorStore:
             ),
         )
 
-        # Reopen once more after creation.
         self.refresh_client()
-
-        # ---------------------------------------------
-        # Verify new collection
-        # ---------------------------------------------
 
         if not self.collection_exists():
             raise RuntimeError(
@@ -384,7 +449,7 @@ class QdrantVectorStore:
 
     def close(self) -> None:
         """
-        Safely close the local Qdrant client.
+        Safely close the Qdrant client.
         """
 
         try:
