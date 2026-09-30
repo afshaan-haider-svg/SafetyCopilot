@@ -209,7 +209,7 @@ STRICT RULES:
    that can help answer it. In that case reply exactly:
    "The available HSE documents do not provide enough information to answer this question reliably."
 
-9. Do not invent filenames or page numbers.
+9. Do not invent filenames or page numbers.S
 10. Do not create a separate sources section.
     The application will append verified sources.
 
@@ -504,10 +504,14 @@ ANSWER:
                 return result
 
             except Exception as exc:
-                
+
                 print("\n--- GROQ ERROR DEBUG ---")
-                print(type(exc).__name__)
-                print(str(exc))
+                print("Type:", type(exc).__name__)
+                print("Error:", str(exc))
+                print(
+                    "Underlying cause:",
+                    repr(exc.__cause__),
+                )
                 print("------------------------\n")
 
                 return {
