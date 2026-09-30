@@ -1,0 +1,79 @@
+# ===========================
+# SafetyCopilot .gitignore
+# ===========================
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.whl
+
+# ---------- Virtual Environments ----------
+.venv/
+venv/
+env/
+ENV/
+
+# ---------- Environment Variables ----------
+.env
+
+# ---------- IDE ----------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ---------- OS ----------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- Jupyter ----------
+.ipynb_checkpoints/
+
+# ---------- Data (keep structure, ignore heavy files) ----------
+data/raw/**/*.pdf
+data/raw/**/*.docx
+data/raw/**/*.doc
+data/raw/**/*.xlsx
+data/raw/**/*.csv
+data/processed/*.json
+data/processed/*.parquet
+
+# ---------- Vector DB local storage ----------
+qdrant_storage/
+chroma_db/
+
+# ---------- Logs ----------
+*.log
+logs/
+
+# ---------- Docker ----------
+docker-compose.override.yml
+
+@"
+
+# ---------- Local Qdrant Database ----------
+data/qdrant/
+
+# ---------- Frontend / Node ----------
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# ---------- Local test files ----------
+Test_Fire_Safety.pdf/
+"@ | Add-Content .gitignore
+# ---------- Runtime Memory Database ----------
+data/memory/*.db
+data/memory/*.sqlite
+data/memory/*.sqlite3
+
+# ---------- Test Vector Databases ----------
+data/qdrant_test/

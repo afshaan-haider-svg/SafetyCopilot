@@ -1,0 +1,8 @@
+# ===========================
+# SafetyCopilot – Python Dependencies
+# ===========================
+# Dependencies are added incrementally as each phase is implemented.
+# Install with:  pip install -r requirements.txt
+
+# --- Phase 1: Document Ingestion ---
+PyMuPDF                # PDF text extraction (import as fitz)
