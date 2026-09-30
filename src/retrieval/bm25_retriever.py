@@ -3,12 +3,16 @@ SafetyCopilot — BM25 Retriever
 
 Provides lexical/keyword-based retrieval over SafetyCopilot
 HSE chunks using BM25.
+
+The retriever supports an empty knowledge base so the
+application can start safely before any local documents
+have been uploaded.
 """
 
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from rank_bm25 import BM25Okapi
 
@@ -34,28 +38,35 @@ def _tokenize(text: str) -> List[str]:
 
 
 class BM25Retriever:
-    """BM25 keyword retriever for HSE document chunks."""
+    """
+    BM25 keyword retriever for HSE document chunks.
+
+    An empty chunk list is valid. This allows SafetyCopilot
+    to initialize successfully when no local PDF documents
+    are currently available.
+    """
 
     def __init__(
         self,
         chunks: List[ChunkData],
     ) -> None:
 
-        if not chunks:
-            raise ValueError(
-                "BM25Retriever requires at least one chunk."
-            )
+        self.chunks = list(chunks)
 
-        self.chunks = chunks
-
-        self.tokenized_corpus = [
+        self.tokenized_corpus: List[List[str]] = [
             _tokenize(chunk.text)
-            for chunk in chunks
+            for chunk in self.chunks
         ]
 
-        self.bm25 = BM25Okapi(
-            self.tokenized_corpus
-        )
+        self.bm25: Optional[BM25Okapi] = None
+
+        # BM25Okapi requires a non-empty corpus.
+        # Keep the retriever in a valid empty state until
+        # documents/chunks become available.
+        if self.tokenized_corpus:
+            self.bm25 = BM25Okapi(
+                self.tokenized_corpus
+            )
 
     @classmethod
     def from_documents(
@@ -64,7 +75,15 @@ class BM25Retriever:
         chunk_size: int = 1000,
         chunk_overlap: int = 200,
     ) -> "BM25Retriever":
-        """Create BM25 retriever directly from parsed documents."""
+        """
+        Create BM25 retriever directly from parsed documents.
+
+        Empty document collections are supported and produce
+        an empty retriever.
+        """
+
+        if not documents:
+            return cls([])
 
         chunks = chunk_documents(
             documents=documents,
@@ -79,7 +98,12 @@ class BM25Retriever:
         query: str,
         top_k: int = 5,
     ) -> List[Dict[str, Any]]:
-        """Retrieve highest-scoring chunks for a keyword query."""
+        """
+        Retrieve highest-scoring chunks for a keyword query.
+
+        Returns an empty list when the knowledge base does
+        not currently contain any chunks.
+        """
 
         if not query or not query.strip():
             raise ValueError(
@@ -90,6 +114,10 @@ class BM25Retriever:
             raise ValueError(
                 "top_k must be greater than 0."
             )
+
+        # Valid empty knowledge-base state.
+        if not self.chunks or self.bm25 is None:
+            return []
 
         query_tokens = _tokenize(query)
 
@@ -118,7 +146,9 @@ class BM25Retriever:
             results.append(
                 {
                     "rank": rank,
-                    "score": float(scores[index]),
+                    "score": float(
+                        scores[index]
+                    ),
                     "text": chunk.text,
                     "chunk_id": chunk.chunk_id,
                     "filename": chunk.filename,
